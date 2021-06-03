@@ -7,6 +7,7 @@ import Foundation
 import CloudKit
 import OSLog
 
+@MainActor
 final class ViewModel: ObservableObject {
 
     // MARK: - State
@@ -31,154 +32,94 @@ final class ViewModel: ObservableObject {
 
     // MARK: - API
 
-    /// Creates custom zone if needed and performs initial fetch afterwards.
-    func initializeAndRefresh(completionHandler: ((Result<Void, Error>) -> Void)? = nil) {
-        createZoneIfNeeded { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self?.state = .error(error)
-                    completionHandler?(.failure(error))
+    nonisolated init() {}
 
-                case .success:
-                    self?.refresh()
-                    completionHandler?(.success(()))
-                }
-            }
+    /// Initializes the ViewModel, preparing for CloudKit interaction.
+    func initialize() async throws {
+        state = .loading
+
+        do {
+            try await createZoneIfNeeded()
+        } catch {
+            state = .error(error)
         }
     }
 
     /// Fetches contacts from the database and updates local state.
-    func refresh() {
-        DispatchQueue.main.async {
-            self.state = .loading
-        }
+    func refresh() async throws {
+        state = .loading
 
-        fetchContacts { [weak self] result in
-            switch result {
-            case .success(let contacts):
-                self?.state = .loaded(contacts: contacts)
-            case .failure(let error):
-                self?.state = .error(error)
-            }
+        do {
+            let contacts = try await fetchContacts()
+            state = .loaded(contacts: contacts)
+        } catch {
+            state = .error(error)
         }
     }
 
-    /// Fetch contacts from iCloud database.
-    /// - Parameter completionHandler: Handler to process Contact results or error.
-    func fetchContacts(completionHandler: @escaping (Result<[Contact], Error>) -> Void) {
-        let operation = CKFetchRecordZoneChangesOperation(recordZoneIDs: [recordZone.zoneID],
-                                                          configurationsByRecordZoneID: [:])
-        var contacts: [Contact] = []
+    /// Fetches records from iCloud Database and returns converted Contacts.
+    func fetchContacts() async throws -> [Contact] {
+        let changes = try await database.recordZoneChanges(inZoneWith: recordZone.zoneID, since: nil)
 
-        /// For each contact received from the operation, convert it to a `Contact` object and add it to an accumulating list.
-        operation.recordWasChangedBlock = { _, result in
-            if let record = try? result.get(), let contact = Contact(record: record) {
-                contacts.append(contact)
-            }
-        }
+        /// Map new/changed records to `Contact` objects.
+        let contacts = changes.modificationResultsByID.values
+            .compactMap { try? $0.get().record }
+            .compactMap { Contact(record: $0) }
 
-        operation.fetchRecordZoneChangesResultBlock = { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self?.handleError(error)
-                    completionHandler(.failure(error))
-
-                case .success:
-                    completionHandler(.success(contacts))
-                }
-            }
-        }
-
-        database.add(operation)
+        return contacts
     }
 
     /// Adds a new Contact to the database, using `encryptedValues` to encrypt the Contact's phone number.
     /// - Parameters:
     ///   - name: Name of the Contact.
     ///   - phoneNumber: Phone number of the contact which will be stored in an encrypted field.
-    ///   - completionHandler: Handler to process success or failure of the operation.
-    func addContact(
-        name: String,
-        phoneNumber: String,
-        completionHandler: @escaping (Result<Contact?, Error>) -> Void
-    ) {
+    /// - Returns: The newly created Contact.
+    func addContact(name: String, phoneNumber: String) async throws -> Contact? {
         let record = CKRecord(recordType: "Contact", recordID: CKRecord.ID(zoneID: recordZone.zoneID))
         record["name"] = name
         record.encryptedValues["phoneNumber"] = phoneNumber
 
-        let saveOperation = CKModifyRecordsOperation(recordsToSave: [record])
-        saveOperation.savePolicy = .allKeys
-
-        saveOperation.modifyRecordsResultBlock = { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self?.handleError(error)
-                    completionHandler(.failure(error))
-
-                case .success:
-                    let contact = Contact(record: record)
-                    completionHandler(.success(contact))
-                }
-            }
+        do {
+            let savedRecord = try await database.save(record)
+            return Contact(record: savedRecord)
+        } catch {
+            handleError(error)
+            throw error
         }
-
-        database.add(saveOperation)
     }
 
     /// Deletes a given list of Contacts from the database.
     /// - Parameters:
     ///   - contacts: Contacts to delete.
-    ///   - completionHandler: Handler to process success or failure of the operation.
-    func deleteContacts(_ contacts: [Contact], completionHandler: @escaping (Result<Void, Error>) -> Void) {
+    func deleteContacts(_ contacts: [Contact]) async throws {
         let recordIDs = contacts.map { $0.associatedRecord.recordID }
         guard !recordIDs.isEmpty else {
             debugPrint("Attempted to delete empty array of Contacts. Skipping.")
             return
         }
 
-        let deleteOperation = CKModifyRecordsOperation(recordIDsToDelete: recordIDs)
-
-        deleteOperation.modifyRecordsResultBlock = { [weak self] result in
-            DispatchQueue.main.async {
-                if case .failure(let error) = result {
-                    self?.handleError(error)
-                }
-
-                completionHandler(result)
-            }
+        do {
+            _ = try await database.modifyRecords(deleting: recordIDs)
+        } catch {
+            handleError(error)
         }
-
-        database.add(deleteOperation)
     }
 
     /// Creates the custom zone in use if needed.
-    /// - Parameter completionHandler: An optional completion handler to track operation success or failure.
-    private func createZoneIfNeeded(completionHandler: ((Result<Void, Error>) -> Void)? = nil) {
+    private func createZoneIfNeeded() async throws {
         // Avoid the operation if this has already been done.
         guard !UserDefaults.standard.bool(forKey: "isZoneCreated") else {
-            completionHandler?(.success(()))
             return
         }
 
-        let createZoneOperation = CKModifyRecordZonesOperation(recordZonesToSave: [recordZone])
-        createZoneOperation.modifyRecordZonesResultBlock = { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    debugPrint("Error: Failed to create custom zone: \(error)")
-
-                case .success:
-                    UserDefaults.standard.setValue(true, forKey: "isZoneCreated")
-                }
-
-                completionHandler?(result)
-            }
+        do {
+            _ = try await database.modifyRecordZones(saving: [recordZone])
+        } catch {
+            print("ERROR: Failed to create custom zone: \(error.localizedDescription)")
+            throw error
         }
 
-        database.add(createZoneOperation)
+        UserDefaults.standard.setValue(true, forKey: "isZoneCreated")
     }
 
     private func handleError(_ error: Error) {

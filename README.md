@@ -6,7 +6,7 @@ This project demonstrates using encrypted values with CloudKit and iCloud contai
 
 ### Prerequisites
 
-* A Mac with [**Xcode 13 Beta 1**](https://developer.apple.com/download/) (or later) installed is required to build and test this project.
+* A Mac with [Xcode 12](https://developer.apple.com/xcode/) (or later) installed is required to build and test this project.
 * An active [Apple Developer Program membership](https://developer.apple.com/support/compare-memberships/) is needed to create a CloudKit container.
 
 ### Setup Instructions

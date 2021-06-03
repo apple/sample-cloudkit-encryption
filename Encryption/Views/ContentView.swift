@@ -19,49 +19,52 @@ struct ContentView: View {
             .navigationTitle("Encrypted Contacts")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button { vm.refresh() } label: { Image(systemName: "arrow.clockwise") }
+                    Button { async { try await vm.refresh() } } label: { Image(systemName: "arrow.clockwise") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { isAddingContact = true } label: { Image(systemName: "plus") }
                 }
             }
-        }.onAppear { vm.initializeAndRefresh() }
+        }.onAppear {
+            async {
+                try await vm.initialize()
+                try await vm.refresh()
+            }
+        }
     }
 
     private var contentView: some View {
-        let view: AnyView = {
+        let listView = List {
             switch vm.state {
-            case .loaded(let contacts):
-                let listView = List {
-                    ForEach(contacts) { contact in
-                        VStack(alignment: .leading) {
-                            Text(contact.name)
-                            Text(contact.phoneNumber)
-                                .textContentType(.telephoneNumber)
-                                .font(.footnote)
-                        }
-                    }.onDelete(perform: deleteContacts(at:))
-                }
+            case .loaded(contacts: let contacts):
+                ForEach(contacts) { contact in
+                    VStack(alignment: .leading) {
+                        Text(contact.name)
+                        Text(contact.phoneNumber)
+                            .textContentType(.telephoneNumber)
+                            .font(.footnote)
+                    }
+                }.onDelete(perform: deleteContacts(at:))
 
-                return AnyView(listView)
+            case .loading:
+                ProgressView()
 
             case .error(let error):
-                return AnyView(Text("An error occurred: \(error.localizedDescription)"))
+                Text("An error occurred: \(error.localizedDescription)")
 
-            default:
-                return AnyView(EmptyView())
+            case .idle:
+                EmptyView()
             }
-        }()
+        }
 
-        return view
+        return AnyView(listView)
     }
 
-    private func addContact(name: String, phoneNumber: String) {
+    private func addContact(name: String, phoneNumber: String) async throws {
         isAddingContact = false
 
-        vm.addContact(name: name, phoneNumber: phoneNumber) { _ in
-            vm.refresh()
-        }
+        _ = try await vm.addContact(name: name, phoneNumber: phoneNumber)
+        try await vm.refresh()
     }
 
     private func deleteContacts(at indexSet: IndexSet) {
@@ -75,8 +78,9 @@ struct ContentView: View {
             .filter { index, _ in indexSet.contains(index) }
             .map { _, contact in contact }
 
-        vm.deleteContacts(contactsToDelete) { _ in
-            vm.refresh()
+        async {
+            try await vm.deleteContacts(contactsToDelete)
+            try await vm.refresh()
         }
     }
 }

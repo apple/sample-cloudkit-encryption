@@ -19,14 +19,14 @@ struct ContentView: View {
             .navigationTitle("Encrypted Contacts")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button { async { try await vm.refresh() } } label: { Image(systemName: "arrow.clockwise") }
+                    Button { Task { try await vm.refresh() } } label: { Image(systemName: "arrow.clockwise") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { isAddingContact = true } label: { Image(systemName: "plus") }
                 }
             }
         }.onAppear {
-            async {
+            Task {
                 try await vm.initialize()
                 try await vm.refresh()
             }
@@ -78,7 +78,7 @@ struct ContentView: View {
             .filter { index, _ in indexSet.contains(index) }
             .map { _, contact in contact }
 
-        async {
+        Task {
             try await vm.deleteContacts(contactsToDelete)
             try await vm.refresh()
         }

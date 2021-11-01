@@ -99,7 +99,7 @@ final class ViewModel: ObservableObject {
         }
 
         do {
-            _ = try await database.modifyRecords(deleting: recordIDs)
+            _ = try await database.modifyRecords(saving: [], deleting: recordIDs)
         } catch {
             handleError(error)
         }
@@ -113,7 +113,7 @@ final class ViewModel: ObservableObject {
         }
 
         do {
-            _ = try await database.modifyRecordZones(saving: [recordZone])
+            _ = try await database.modifyRecordZones(saving: [recordZone], deleting: [])
         } catch {
             print("ERROR: Failed to create custom zone: \(error.localizedDescription)")
             throw error

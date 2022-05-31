@@ -20,7 +20,7 @@ class EncryptionTests: XCTestCase {
     override func setUp() {
         let expectation = self.expectation(description: "Expect initialization completed")
 
-        async {
+        Task {
             try await viewModel.initialize()
             expectation.fulfill()
         }
@@ -35,7 +35,7 @@ class EncryptionTests: XCTestCase {
 
         let deleteExpectation = expectation(description: "Expect Contacts created during tests to delete.")
 
-        async {
+        Task {
             try await viewModel.deleteContacts(contactsToDelete)
             deleteExpectation.fulfill()
         }

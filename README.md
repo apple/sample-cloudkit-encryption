@@ -56,6 +56,10 @@ You can confirm that the value is encrypted by viewing the schema in [CloudKit D
 * Handling errors specifically related to using Encrypted Fields.
 * Using XCTest to asynchronously test creating new temporary records, fetching records, and cleaning up records created during tests with `tearDown` functions.
 
+### Note on Swift Concurrency
+
+This project uses Swift concurrency APIs. A prior `completionHandler`-based implementation has been tagged [`pre-async`](https://github.com/apple/cloudkit-sample-encryption/tree/pre-async).
+
 ### Further Reading
 
 * [Encrypting User Data](https://developer.apple.com/documentation/cloudkit/encrypting_user_data)
